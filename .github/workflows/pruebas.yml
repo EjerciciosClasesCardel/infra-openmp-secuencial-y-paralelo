@@ -1,0 +1,24 @@
+name: Pruebas
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  compilar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Versión secuencial
+        run: make secuencial
+
+      - name: Versión paralela
+        run: make paralelo
+
+      - name: Verificar las salidas
+        run: |
+          bash validar.sh secuencial.txt || { echo "secuencial.txt vacío o ausente"; exit 1; }
+          bash validar.sh paralelo.txt   || { echo "paralelo.txt vacío o ausente"; exit 1; }
+          echo "Las dos versiones dejaron salida."
