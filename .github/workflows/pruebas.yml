@@ -6,19 +6,70 @@ on:
   workflow_dispatch:
 
 jobs:
-  compilar:
+  medir:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Versión secuencial
-        run: make secuencial
+      - name: "Parte 1: producto de Hadamard"
+        run: make hadamard
 
-      - name: Versión paralela
-        run: make paralelo
-
-      - name: Verificar las salidas
+      - name: "Parte 1: las cinco sumas dan 36 por n"
         run: |
-          bash validar.sh secuencial.txt || { echo "secuencial.txt vacío o ausente"; exit 1; }
-          bash validar.sh paralelo.txt   || { echo "paralelo.txt vacío o ausente"; exit 1; }
-          echo "Las dos versiones dejaron salida."
+          awk '
+            {
+              for (i = 1; i <= NF; i++) { if ($i == "n") n = $(i + 1); if ($i == "suma") suma = $(i + 1) }
+              if (suma + 0 != 36 * n) { printf "linea %d: la suma dio %s y debia dar %.0f\n", NR, suma, 36 * n; mal = 1 }
+            }
+            END { if (NR < 5) { print "faltan lineas en hadamard.txt: se esperaban 5 y hay " NR; exit 1 }
+                  if (mal) exit 1 }
+          ' hadamard.txt
+          echo "Las cinco sumas coinciden con el valor esperado."
+
+      - name: "Parte 2: schedule sobre tareas desiguales"
+        run: make reparto
+
+      - name: "Parte 2: los totales coinciden y el reparto por demanda no pierde"
+        run: |
+          awk '
+            $1 == "creciente" { c[$2] = $3; tc[$2] = $NF }
+            $1 == "periodico" { p[$2] = $3; tp[$2] = $NF }
+            END {
+              for (r in tc) if (tc[r] != 1651577046) { print "creciente " r ": total " tc[r] ", debia ser 1651577046"; mal = 1 }
+              for (r in tp) if (tp[r] != 1702399936) { print "periodico " r ": total " tp[r] ", debia ser 1702399936"; mal = 1 }
+              if (!("demanda" in c) || !("turnos" in c)) { print "faltan lineas en reparto.txt"; exit 1 }
+              if (mal) exit 1
+              printf "creciente: bloques %s ms, turnos %s ms, demanda %s ms\n", c["bloques"], c["turnos"], c["demanda"]
+              printf "periodico: bloques %s ms, turnos %s ms, demanda %s ms\n", p["bloques"], p["turnos"], p["demanda"]
+              if (c["demanda"] + 0 > c["bloques"] + 0) { print "con el patron creciente, el reparto por demanda tardo mas que los bloques"; exit 1 }
+              if (p["demanda"] + 0 > p["turnos"] + 0) { print "con el patron periodico, el reparto por demanda tardo mas que los turnos"; exit 1 }
+            }
+          ' reparto.txt
+
+      - name: "Parte 3: la carrera de datos"
+        run: make histograma
+
+      - name: "Parte 3: las tres versiones protegidas cuentan bien"
+        run: |
+          for v in atomic critical reduccion; do
+            grep -q "^$v .* coincide$" histograma.txt || { echo "la version $v no coincide con la secuencial"; exit 1; }
+          done
+          at=$(awk '$1 == "atomic" {print $2}' histograma.txt)
+          red=$(awk '$1 == "reduccion" {print $2}' histograma.txt)
+          echo "atomic: ${at} ms, reduccion: ${red} ms"
+          awk -v a="$at" -v r="$red" 'BEGIN { if (r + 0 >= a + 0) { print "la reduccion con copias privadas no salio mas rapida que atomic"; exit 1 } }'
+
+      - name: "Parte 4: sections"
+        run: make secciones
+
+      - name: "Parte 4: los tres resultados coinciden en las tres versiones"
+        run: |
+          awk '
+            { for (i = 1; i <= NF; i++) { if ($i == "suma") s[$1] = $(i + 1); if ($i == "maximo") m[$1] = $(i + 1); if ($i == "mayores") y[$1] = $(i + 1) } }
+            END {
+              for (v in s) if (s[v] != "107379807090968263" || m[v] != "2147483638" || y[v] != "53437011") { print v ": suma " s[v] " maximo " m[v] " mayores " y[v] " no son los esperados"; mal = 1 }
+              if (!("secciones" in s) || !("una_pasada" in s)) { print "faltan lineas en secciones.txt"; exit 1 }
+              if (mal) exit 1
+              print "Los tres resultados coinciden en las tres versiones."
+            }
+          ' secciones.txt
