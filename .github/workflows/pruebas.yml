@@ -5,32 +5,72 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Un push nuevo cancela el run anterior de la misma rama.
+concurrency:
+  group: pruebas-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  medir:
+  parte-1:
+    name: "Parte 1: el producto de Hadamard"
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
-      - name: "Parte 1: producto de Hadamard"
-        run: make hadamard
-
-      - name: "Parte 1: las cinco sumas dan 36 por n"
+      - name: Compilar, ejecutar y verificar
         run: |
+          correr() {
+            make hadamard
+          }
+          verificar() {
+            nucleos="$nucleos" bash -eo pipefail <<'VERIFICAR'
           awk '
             {
               for (i = 1; i <= NF; i++) { if ($i == "n") n = $(i + 1); if ($i == "suma") suma = $(i + 1) }
               if (suma + 0 != 36 * n) { printf "linea %d: la suma dio %s y debia dar %.0f\n", NR, suma, 36 * n; mal = 1 }
+              if ($1 == "hilos") t[$2] = $5
             }
-            END { if (NR < 5) { print "faltan lineas en hadamard.txt: se esperaban 5 y hay " NR; exit 1 }
-                  if (mal) exit 1 }
+            END {
+              if (NR < 5) { print "faltan lineas en hadamard.txt: se esperaban 5 y hay " NR; exit 1 }
+              if (mal) exit 1
+              printf "paralelo: 1 hilo %s ms, 4 hilos %s ms\n", t[1], t[4]
+              if (t[4] + 0 > 0.85 * t[1]) { print "con cuatro hilos el tiempo no bajo respecto a uno: revise las directivas"; exit 1 }
+            }
           ' hadamard.txt
-          echo "Las cinco sumas coinciden con el valor esperado."
+          VERIFICAR
+          }
+          correr
+          if ! salida=$(verificar 2>&1); then
+            echo "$salida"; echo "::notice title=Parte 1::segunda corrida antes de marcar rojo"
+            correr
+            salida=$(verificar 2>&1) || { echo "$salida"; echo "::error file=hadamard.cpp,title=Parte 1::$(echo "$salida" | tail -1)"; exit 1; }
+          fi
+          echo "$salida"
 
-      - name: "Parte 2: schedule sobre tareas desiguales"
-        run: make reparto
-
-      - name: "Parte 2: los totales coinciden y el reparto por demanda no pierde"
+      - name: Resumen
+        if: always()
         run: |
+          { echo "### Parte 1: el producto de Hadamard"; echo '```'; cat hadamard.txt 2>/dev/null || echo "sin salida de hadamard.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+  parte-2:
+    name: "Parte 2: schedule"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compilar, ejecutar y verificar
+        run: |
+          correr() {
+            TIMEFORMAT='%R %U %S'
+            { time make reparto 2>&1 | tee salida.log; } 2> tiempo.txt
+            read -r real user sys < tiempo.txt
+            nucleos=$(awk -v r="$real" -v u="$user" -v s="$sys" 'BEGIN { printf "%.2f", (u + s) / r }')
+            echo "cpu / reloj: ${nucleos}  (reloj ${real} s, cpu $(awk -v u="$user" -v s="$sys" 'BEGIN { printf "%.1f", u + s }') s)" | tee cpu.txt
+          }
+          verificar() {
+            nucleos="$nucleos" bash -eo pipefail <<'VERIFICAR'
           awk '
             $1 == "creciente" { c[$2] = $3; tc[$2] = $NF }
             $1 == "periodico" { p[$2] = $3; tp[$2] = $NF }
@@ -41,35 +81,129 @@ jobs:
               if (mal) exit 1
               printf "creciente: bloques %s ms, turnos %s ms, demanda %s ms\n", c["bloques"], c["turnos"], c["demanda"]
               printf "periodico: bloques %s ms, turnos %s ms, demanda %s ms\n", p["bloques"], p["turnos"], p["demanda"]
-              if (c["demanda"] + 0 > c["bloques"] + 0) { print "con el patron creciente, el reparto por demanda tardo mas que los bloques"; exit 1 }
+              if (c["demanda"] + 0 > c["bloques"] + 0) { print "con el patron creciente, el reparto por demanda tardo mas que los bloques contiguos"; exit 1 }
               if (p["demanda"] + 0 > p["turnos"] + 0) { print "con el patron periodico, el reparto por demanda tardo mas que los turnos"; exit 1 }
+              if (c["turnos"] + 0 > c["bloques"] + 0) { print "con el patron creciente, el reparto por turnos tardo mas que los bloques contiguos"; exit 1 }
             }
           ' reparto.txt
+          awk -v n="$nucleos" 'BEGIN { if (n + 0 < 1.4) { print "el programa uso " n " nucleos en promedio: los repartos no estan corriendo en varios hilos"; exit 1 } }'
+          VERIFICAR
+          }
+          correr
+          if ! salida=$(verificar 2>&1); then
+            echo "$salida"; echo "::notice title=Parte 2::segunda corrida antes de marcar rojo"
+            correr
+            salida=$(verificar 2>&1) || { echo "$salida"; echo "::error file=reparto.cpp,title=Parte 2::$(echo "$salida" | tail -1)"; exit 1; }
+          fi
+          echo "$salida"
 
-      - name: "Parte 3: la carrera de datos"
-        run: make histograma
-
-      - name: "Parte 3: las tres versiones protegidas cuentan bien"
+      - name: Resumen
+        if: always()
         run: |
+          { echo "### Parte 2: schedule"; echo '```'; cat reparto.txt 2>/dev/null || echo "sin salida de reparto.txt"; cat cpu.txt 2>/dev/null || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+  parte-3:
+    name: "Parte 3: la carrera de datos"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compilar, ejecutar y verificar
+        run: |
+          correr() {
+            TIMEFORMAT='%R %U %S'
+            { time make histograma 2>&1 | tee salida.log; } 2> tiempo.txt
+            read -r real user sys < tiempo.txt
+            nucleos=$(awk -v r="$real" -v u="$user" -v s="$sys" 'BEGIN { printf "%.2f", (u + s) / r }')
+            echo "cpu / reloj: ${nucleos}  (reloj ${real} s, cpu $(awk -v u="$user" -v s="$sys" 'BEGIN { printf "%.1f", u + s }') s)" | tee cpu.txt
+          }
+          verificar() {
+            nucleos="$nucleos" bash -eo pipefail <<'VERIFICAR'
           for v in atomic critical reduccion; do
             grep -q "^$v .* coincide$" histograma.txt || { echo "la version $v no coincide con la secuencial"; exit 1; }
           done
           at=$(awk '$1 == "atomic" {print $2}' histograma.txt)
           red=$(awk '$1 == "reduccion" {print $2}' histograma.txt)
           echo "atomic: ${at} ms, reduccion: ${red} ms"
-          awk -v a="$at" -v r="$red" 'BEGIN { if (r + 0 >= a + 0) { print "la reduccion con copias privadas no salio mas rapida que atomic"; exit 1 } }'
+          awk -v a="$at" -v r="$red" 'BEGIN { if (r + 0 >= a + 0) { print "la reduccion con copias privadas no salio mas rapida que atomic"; exit 1 } }' 
+          awk -v n="$nucleos" 'BEGIN { if (n + 0 < 1.4) { print "el programa uso " n " nucleos en promedio: las versiones protegidas no estan corriendo en varios hilos"; exit 1 } }'
+          VERIFICAR
+          }
+          correr
+          if ! salida=$(verificar 2>&1); then
+            echo "$salida"; echo "::notice title=Parte 3::segunda corrida antes de marcar rojo"
+            correr
+            salida=$(verificar 2>&1) || { echo "$salida"; echo "::error file=histograma.cpp,title=Parte 3::$(echo "$salida" | tail -1)"; exit 1; }
+          fi
+          echo "$salida"
 
-      - name: "Parte 4: sections"
-        run: make secciones
-
-      - name: "Parte 4: los tres resultados coinciden en las tres versiones"
+      - name: Resumen
+        if: always()
         run: |
+          { echo "### Parte 3: la carrera de datos"; echo '```'; cat histograma.txt 2>/dev/null || echo "sin salida de histograma.txt"; cat cpu.txt 2>/dev/null || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+  parte-4:
+    name: "Parte 4: sections"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compilar, ejecutar y verificar
+        run: |
+          correr() {
+            make secciones
+          }
+          verificar() {
+            nucleos="$nucleos" bash -eo pipefail <<'VERIFICAR'
           awk '
-            { for (i = 1; i <= NF; i++) { if ($i == "suma") s[$1] = $(i + 1); if ($i == "maximo") m[$1] = $(i + 1); if ($i == "mayores") y[$1] = $(i + 1) } }
+            { for (i = 1; i <= NF; i++) { if ($i == "suma") s[$1] = $(i + 1); if ($i == "maximo") m[$1] = $(i + 1); if ($i == "mayores") y[$1] = $(i + 1) }; t[$1] = $2 }
             END {
               for (v in s) if (s[v] != "107379807090968263" || m[v] != "2147483638" || y[v] != "53437011") { print v ": suma " s[v] " maximo " m[v] " mayores " y[v] " no son los esperados"; mal = 1 }
               if (!("secciones" in s) || !("una_pasada" in s)) { print "faltan lineas en secciones.txt"; exit 1 }
               if (mal) exit 1
-              print "Los tres resultados coinciden en las tres versiones."
+              printf "secuencial %s ms, secciones %s ms, una pasada %s ms\n", t["secuencial"], t["secciones"], t["una_pasada"]
+              if (t["secciones"] + 0 > 0.85 * t["secuencial"]) { print "las secciones no bajaron el tiempo del secuencial: revise que las tres corran a la vez"; exit 1 }
+              if (t["una_pasada"] + 0 > 0.85 * t["secuencial"]) { print "la pasada unica no bajo el tiempo del secuencial: revise el parallel for y sus reducciones"; exit 1 }
             }
           ' secciones.txt
+          VERIFICAR
+          }
+          correr
+          if ! salida=$(verificar 2>&1); then
+            echo "$salida"; echo "::notice title=Parte 4::segunda corrida antes de marcar rojo"
+            correr
+            salida=$(verificar 2>&1) || { echo "$salida"; echo "::error file=secciones.cpp,title=Parte 4::$(echo "$salida" | tail -1)"; exit 1; }
+          fi
+          echo "$salida"
+
+      - name: Resumen
+        if: always()
+        run: |
+          { echo "### Parte 4: sections"; echo '```'; cat secciones.txt 2>/dev/null || echo "sin salida de secciones.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+  resumen:
+    name: Resumen
+    needs: [parte-1, parte-2, parte-3, parte-4]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Estado de las partes
+        run: |
+          estado() { case "$1" in success) echo "en verde";; failure) echo "en rojo";; *) echo "$1";; esac; }
+          verdes=0
+          for r in "${{ needs.parte-1.result }}" "${{ needs.parte-2.result }}" "${{ needs.parte-3.result }}" "${{ needs.parte-4.result }}"; do
+            test "$r" = success && verdes=$((verdes + 1))
+          done
+          {
+            echo "## ${verdes} de 4 partes en verde"
+            echo
+            echo "| Parte | Estado |"
+            echo "|---|---|"
+            echo "| Parte 1: el producto de Hadamard | $(estado "${{ needs.parte-1.result }}") |"
+            echo "| Parte 2: schedule | $(estado "${{ needs.parte-2.result }}") |"
+            echo "| Parte 3: la carrera de datos | $(estado "${{ needs.parte-3.result }}") |"
+            echo "| Parte 4: sections | $(estado "${{ needs.parte-4.result }}") |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "${verdes} de 4 partes en verde"

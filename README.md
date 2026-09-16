@@ -4,6 +4,8 @@ Infraestructuras Paralelas y Distribuidas
 Escuela de Ingeniería de Sistemas y Computación, Universidad del Valle
 Carlos Andrés Delgado Saavedra
 
+[![Pruebas](../../actions/workflows/pruebas.yml/badge.svg)](../../actions/workflows/pruebas.yml)
+
 Los mismos problemas que ya se repartieron con `std::thread` y con TBB,
 ahora con directivas. Cada programa trae la versión secuencial escrita y
 pide la paralela; los dos imprimen el resultado al lado del tiempo, y el
@@ -119,13 +121,26 @@ OMP_NUM_THREADS=2 make secciones
 
 ## Qué revisa el flujo de Actions
 
-- Parte 1: que las cinco sumas den `36 * n`.
-- Parte 2: que los seis totales sean los correctos, que el reparto por
+- Parte 1: que las cinco sumas den `36 * n` y que cuatro hilos tarden menos
+  que uno.
+- Parte 2: que los seis totales sean los correctos; que el reparto por
   demanda no tarde más que los bloques en el patrón creciente ni más que los
-  turnos en el periódico.
+  turnos en el periódico, y que los turnos no tarden más que los bloques en
+  el creciente; y que el programa haya usado más de un procesador en
+  promedio, medido como tiempo de CPU sobre tiempo de reloj.
 - Parte 3: que `atomic`, `critical` y la reducción coincidan con la
-  secuencial, y que la reducción sea más rápida que `atomic`.
-- Parte 4: que los tres resultados sean los mismos en las tres versiones.
+  secuencial, que la reducción sea más rápida que `atomic`, y que el programa
+  haya corrido en varios procesadores.
+- Parte 4: que los tres resultados sean los mismos en las tres versiones y
+  que tanto las secciones como la pasada única tarden menos que la
+  secuencial.
+
+Cada parte es un job aparte: la lista de verificaciones del commit dice cuál
+quedó en verde y cuál no, y la pestaña del run trae un resumen con la salida
+de cada programa y el conteo de partes en verde. Cuando una verificación de
+tiempos falla, el flujo repite la corrida una vez antes de marcar rojo, y el
+error queda anotado sobre el archivo de esa parte. Un push nuevo cancela el
+run anterior.
 
 Los tiempos del registro son los de un servidor compartido con cuatro
 procesadores; los que valen para la discusión son los de su máquina.
