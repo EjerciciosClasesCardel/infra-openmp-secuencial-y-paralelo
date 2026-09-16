@@ -6,6 +6,10 @@ Carlos Andrés Delgado Saavedra
 
 [![Pruebas](../../actions/workflows/pruebas.yml/badge.svg)](../../actions/workflows/pruebas.yml)
 
+Lo que cada parte necesita de las bibliotecas y herramientas está en
+[DOCUMENTACION.md](DOCUMENTACION.md), con ejemplos que corren y los enlaces
+a la documentación oficial.
+
 Los mismos problemas que ya se repartieron con `std::thread` y con TBB,
 ahora con directivas. Cada programa trae la versión secuencial escrita y
 pide la paralela; los dos imprimen el resultado al lado del tiempo, y el
