@@ -22,6 +22,27 @@ resultado se compara antes que el reloj.
 | 3 | `histograma.cpp` | La carrera de datos, `atomic`, `critical` y la reducción de un arreglo |
 | 4 | `secciones.cpp` | `sections` frente a un `parallel for` con tres reducciones |
 
+## Requisitos
+
+| Qué | Linux (Debian/Ubuntu) | macOS | Windows |
+|---|---|---|---|
+| `g++` con OpenMP y `make` | `sudo apt install build-essential` (lo hace `bash script.sh`) | `brew install gcc` | WSL2 con Ubuntu y el comando de Linux |
+
+En Linux OpenMP viene con `g++`. En macOS el `g++` de Xcode es Apple clang
+y no acepta `-fopenmp`: se instala el GCC de Homebrew, que queda con el
+número de versión en el nombre, y se le indica al `Makefile`:
+
+```bash
+ls "$(brew --prefix)/bin/"g++-*      # dice cuál quedó instalado
+make CXX=g++-16 hadamard             # con el número que salió arriba
+```
+
+El número de hilos que ve OpenMP es el de la máquina donde corre; en WSL2 se
+fija con `processors=` en `.wslconfig` si hace falta acotarlo.
+
+Cómo dejar cada sistema listo, paso a paso, está en
+[DOCUMENTACION.md](DOCUMENTACION.md), al final.
+
 ## Parte 1: el producto de Hadamard
 
 `w[i] = u[i] * v[i]` y después la suma de `w`, con `u` en 4 y `v` en 9,
